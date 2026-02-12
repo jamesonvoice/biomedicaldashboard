@@ -1,0 +1,321 @@
+
+import React, { useState, useEffect, useRef } from 'react';
+import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom';
+import { 
+  LayoutDashboard, 
+  Stethoscope, 
+  Wrench, 
+  Package, 
+  Users, 
+  UserPlus,
+  Files, 
+  BarChart3, 
+  Settings, 
+  LogOut,
+  Menu,
+  X,
+  Search,
+  Bell,
+  ShieldCheck,
+  FileBadge,
+  CreditCard,
+  Info,
+  AlertTriangle,
+  Clock,
+  ArrowRight,
+  Zap
+} from 'lucide-react';
+import { signOut } from 'firebase/auth';
+import { collection, getDocs } from 'firebase/firestore';
+import { auth, db } from '../firebase';
+import { Equipment, MaintenanceContract, PaymentReminder } from '../types';
+
+const SidebarItem: React.FC<{ 
+  to: string; 
+  icon: React.ReactNode; 
+  label: string; 
+  isActive: boolean;
+  onClick?: () => void;
+}> = ({ to, icon, label, isActive, onClick }) => (
+  <Link
+    to={to}
+    onClick={onClick}
+    className={`flex items-center space-x-3 px-4 py-3 rounded-lg transition-colors ${
+      isActive 
+        ? 'bg-blue-600 text-white shadow-md' 
+        : 'text-slate-600 hover:bg-slate-100 hover:text-blue-600'
+    }`}
+  >
+    {icon}
+    <span className="font-medium text-sm">{label}</span>
+  </Link>
+);
+
+const Layout: React.FC = () => {
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [isNotificationOpen, setIsNotificationOpen] = useState(false);
+  const [notifications, setNotifications] = useState<any[]>([]);
+  const notificationRef = useRef<HTMLDivElement>(null);
+  const location = useLocation();
+  const navigate = useNavigate();
+
+  const handleLogout = async () => {
+    try {
+      await signOut(auth);
+      navigate('/login');
+    } catch (error) {
+      console.error('Error logging out:', error);
+    }
+  };
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (notificationRef.current && !notificationRef.current.contains(event.target as Node)) {
+        setIsNotificationOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  useEffect(() => {
+    const fetchAlerts = async () => {
+      try {
+        const [eqSnap, mcSnap, remSnap] = await Promise.all([
+          getDocs(collection(db, 'equipment')),
+          getDocs(collection(db, 'maintenanceContracts')),
+          getDocs(collection(db, 'paymentReminders'))
+        ]);
+
+        const now = new Date();
+        now.setHours(0,0,0,0);
+        const thirtyDaysFromNow = new Date();
+        thirtyDaysFromNow.setDate(now.getDate() + 30);
+
+        const activeAlerts: any[] = [];
+
+        eqSnap.docs.forEach(d => {
+          const e = d.data() as Equipment;
+          if (e.licenseRequired && e.licenseInfo?.expiryDate) {
+            const expiry = new Date(e.licenseInfo.expiryDate);
+            if (expiry <= thirtyDaysFromNow && expiry >= now) {
+              activeAlerts.push({
+                id: `lic-${d.id}`,
+                type: 'License',
+                title: e.name,
+                message: `License expires: ${e.licenseInfo.expiryDate}`,
+                link: `/equipment/${d.id}`,
+                icon: <ShieldCheck size={16} className="text-amber-600" />,
+                bg: 'bg-amber-50'
+              });
+            }
+          }
+        });
+
+        mcSnap.docs.forEach(d => {
+          const c = d.data() as MaintenanceContract;
+          const expiry = new Date(c.endDate);
+          if (expiry <= thirtyDaysFromNow && expiry >= now) {
+            activeAlerts.push({
+              id: `con-${d.id}`,
+              type: 'Contract',
+              title: c.equipmentName,
+              message: `Service contract renewal: ${c.endDate}`,
+              link: `/equipment/${c.equipmentId}`,
+              icon: <FileBadge size={16} className="text-blue-600" />,
+              bg: 'bg-blue-50'
+            });
+          }
+        });
+
+        remSnap.docs.forEach(d => {
+          const rem = d.data() as PaymentReminder;
+          if (rem.status === 'Pending') {
+            const sched = new Date(rem.scheduledDate);
+            const diff = Math.ceil((sched.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+            if (diff <= rem.leadDays) {
+              activeAlerts.push({
+                id: `rem-${d.id}`,
+                type: 'Payment',
+                title: rem.name,
+                message: `BDT ${rem.amountToPay.toLocaleString()} due ${rem.scheduledDate}`,
+                link: `/payments`,
+                icon: <CreditCard size={16} className="text-indigo-600" />,
+                bg: 'bg-indigo-50'
+              });
+            }
+          }
+        });
+
+        setNotifications(activeAlerts);
+      } catch (err) {
+        console.error("Layout notification fetch error:", err);
+      }
+    };
+
+    fetchAlerts();
+    const interval = setInterval(fetchAlerts, 300000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const menuItems = [
+    { to: '/', icon: <LayoutDashboard size={20} />, label: 'Dashboard' },
+    { to: '/uptime-manager', icon: <Zap size={20} />, label: 'Uptime Manager' },
+    { to: '/equipment', icon: <Stethoscope size={20} />, label: 'Equipment' },
+    { to: '/maintenance-contracts', icon: <FileBadge size={20} />, label: 'Maintenance Contracts' },
+    { to: '/licenses', icon: <ShieldCheck size={20} />, label: 'Licenses' },
+    { to: '/service', icon: <Wrench size={20} />, label: 'Service Logs' },
+    { to: '/payments', icon: <CreditCard size={20} />, label: 'Payments' },
+    { to: '/spare-parts', icon: <Package size={20} />, label: 'Spare Parts' },
+    { to: '/vendors', icon: <Users size={20} />, label: 'Companies' },
+    { to: '/engineers', icon: <UserPlus size={20} />, label: 'Engineer List' },
+    { to: '/documents', icon: <Files size={20} />, label: 'Documents' },
+    { to: '/reports', icon: <BarChart3 size={20} />, label: 'Reports' },
+    { to: '/settings', icon: <Settings size={20} />, label: 'Settings' },
+    { to: '/about', icon: <Info size={20} />, label: 'About Developer' },
+  ];
+
+  return (
+    <div className="min-h-screen bg-slate-50 flex">
+      {isSidebarOpen && (
+        <div 
+          className="fixed inset-0 bg-slate-900/50 z-40 lg:hidden"
+          onClick={() => setIsSidebarOpen(false)}
+        />
+      )}
+
+      <aside className={`
+        fixed inset-y-0 left-0 z-50 w-64 bg-white border-r border-slate-200 transform transition-transform duration-300 ease-in-out lg:relative lg:translate-x-0
+        ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'}
+      `}>
+        <div className="flex flex-col h-full">
+          <div className="p-6">
+            <div className="flex items-center space-x-2">
+              <div className="bg-blue-600 p-2 rounded-lg">
+                <Stethoscope className="text-white" size={24} />
+              </div>
+              <h1 className="text-xl font-bold text-slate-900">BioMed Pro</h1>
+            </div>
+          </div>
+
+          <nav className="flex-1 px-4 space-y-1 overflow-y-auto">
+            {menuItems.map((item) => (
+              <SidebarItem
+                key={item.to}
+                {...item}
+                isActive={location.pathname === item.to || (item.to === '/equipment' && location.pathname.startsWith('/equipment/'))}
+                onClick={() => setIsSidebarOpen(false)}
+              />
+            ))}
+          </nav>
+
+          <div className="p-4 border-t border-slate-200">
+            <button
+              onClick={handleLogout}
+              className="flex items-center space-x-3 w-full px-4 py-3 text-slate-600 hover:bg-red-50 hover:text-red-600 rounded-lg transition-colors text-sm"
+            >
+              <LogOut size={20} />
+              <span className="font-medium">Sign Out</span>
+            </button>
+          </div>
+        </div>
+      </aside>
+
+      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+        <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-4 lg:px-8 shrink-0 relative z-40">
+          <div className="flex items-center flex-1">
+            <button 
+              className="lg:hidden p-2 text-slate-600 hover:bg-slate-100 rounded-md mr-4"
+              onClick={() => setIsSidebarOpen(true)}
+            >
+              <Menu size={24} />
+            </button>
+            <div className="max-w-md w-full relative hidden sm:block">
+               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+               <input 
+                 type="text" 
+                 placeholder="Search assets, engineers, vendors..." 
+                 className="w-full bg-slate-50 border border-slate-200 rounded-xl py-2 pl-10 pr-4 outline-none focus:ring-2 focus:ring-blue-500 text-sm transition-all"
+               />
+            </div>
+          </div>
+          
+          <div className="flex items-center space-x-4 relative" ref={notificationRef}>
+            <button 
+              onClick={() => setIsNotificationOpen(!isNotificationOpen)}
+              className={`p-2 transition-colors relative rounded-xl ${isNotificationOpen ? 'bg-blue-50 text-blue-600' : 'text-slate-400 hover:text-blue-600'}`}
+            >
+              <Bell size={22} />
+              {notifications.length > 0 && (
+                <span className="absolute top-2 right-2 w-2 h-2 bg-red-500 rounded-full border-2 border-white animate-pulse"></span>
+              )}
+            </button>
+
+            {isNotificationOpen && (
+              <div className="absolute top-full right-0 mt-2 w-80 md:w-96 bg-white border border-slate-100 rounded-[2rem] shadow-2xl overflow-hidden animate-in fade-in slide-in-from-top-2 duration-300">
+                <div className="p-6 border-b border-slate-50 bg-slate-50/50 flex justify-between items-center">
+                   <h3 className="text-sm font-black text-slate-900 uppercase tracking-widest">Priority Alerts</h3>
+                   <span className="px-2 py-0.5 bg-blue-600 text-white text-[9px] font-black rounded-lg">{notifications.length} Total</span>
+                </div>
+                <div className="max-h-[400px] overflow-y-auto">
+                   {notifications.length > 0 ? (
+                     notifications.map((notif) => (
+                       <button 
+                         key={notif.id}
+                         onClick={() => {
+                           navigate(notif.link);
+                           setIsNotificationOpen(false);
+                         }}
+                         className="w-full p-5 flex items-start space-x-4 hover:bg-slate-50 transition-all border-b border-slate-50 last:border-0 text-left group"
+                       >
+                         <div className={`p-2.5 rounded-xl ${notif.bg} shrink-0 group-hover:scale-110 transition-transform`}>
+                           {notif.icon}
+                         </div>
+                         <div className="flex-1 min-w-0">
+                           <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-0.5">{notif.type}</p>
+                           <p className="text-sm font-bold text-slate-900 truncate mb-1">{notif.title}</p>
+                           <p className="text-xs text-slate-500 line-clamp-2 leading-relaxed">{notif.message}</p>
+                         </div>
+                         <ArrowRight size={14} className="text-slate-200 mt-6 group-hover:text-blue-500 group-hover:translate-x-1 transition-all" />
+                       </button>
+                     ))
+                   ) : (
+                     <div className="py-12 px-6 text-center space-y-3">
+                        <div className="w-12 h-12 bg-slate-50 rounded-full flex items-center justify-center mx-auto text-slate-200">
+                           <Bell size={24} />
+                        </div>
+                        <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">No active alerts</p>
+                        <p className="text-[10px] text-slate-300 leading-relaxed italic">All assets are compliant and up-to-date.</p>
+                     </div>
+                   )}
+                </div>
+                {notifications.length > 0 && (
+                  <div className="p-4 bg-slate-50/50 border-t border-slate-50">
+                     <button 
+                       onClick={() => {
+                         navigate('/reports');
+                         setIsNotificationOpen(false);
+                       }}
+                       className="w-full py-2.5 text-[9px] font-black text-blue-600 uppercase tracking-widest hover:underline"
+                     >
+                       View Detailed Analytical Dossier
+                     </button>
+                  </div>
+                )}
+              </div>
+            )}
+
+            <div className="h-9 w-9 rounded-full bg-blue-600 flex items-center justify-center text-white font-bold text-sm shadow-lg shadow-blue-200">
+              {auth.currentUser?.email?.charAt(0).toUpperCase() || 'A'}
+            </div>
+          </div>
+        </header>
+        <main className="flex-1 overflow-y-auto p-4 lg:p-8">
+          <Outlet />
+        </main>
+      </div>
+    </div>
+  );
+};
+
+export default Layout;
