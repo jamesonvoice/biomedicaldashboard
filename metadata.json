@@ -1,0 +1,7 @@
+{
+  "name": "BioMed Asset Pro",
+  "description": "A comprehensive Biomedical Equipment Management System for hospital engineers to track maintenance, assets, spare parts, and vendors.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
